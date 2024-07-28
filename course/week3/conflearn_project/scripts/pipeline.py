@@ -382,6 +382,19 @@ class TrainIdentifyReview(FlowSpec):
     os.makedirs(LOG_DIR, exist_ok = True)
     to_json(results, log_file)  # save to disk
 
+        # Generate README with accuracies
+    baseline_results = json.load(open(join(LOG_DIR, 'baseline.json')))
+    baseline_accuracy = baseline_results['test_accuracy'] * 100
+    conflearn_accuracy = results['test_accuracy'] * 100
+
+    readme_content = f"""# README
+MODEL W/O CONFIDENCE LEARNING  : {baseline_accuracy:.1f}% 
+MODEL WITH CONFIDENCE LEARNING : {conflearn_accuracy:.1f}% 
+"""
+
+    with open('README', 'w') as f:
+        f.write(readme_content)
+
     self.next(self.end)
 
   @step
