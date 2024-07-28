@@ -161,7 +161,50 @@ class TrainIdentifyReview(FlowSpec):
       # Types:
       # --
       # probs_: np.array[float] (shape: |test set|)
-      # TODO
+      
+      # Get train and test slices of X and y
+      X_train, X_test = X[train_index], X[test_index]
+      y_train, y_test = y[train_index], y[test_index]
+
+      # Convert to torch tensors
+      X_train_tensor = torch.FloatTensor(X_train)
+      y_train_tensor = torch.LongTensor(y_train)
+      X_test_tensor = torch.FloatTensor(X_test)
+
+      # Create train/test datasets using tensors
+      train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+      test_dataset = TensorDataset(X_test_tensor)
+
+      # Create train/test data loaders from datasets
+      train_loader = DataLoader(train_dataset, batch_size=self.config.train.optimizer.batch_size, shuffle=True)
+      test_loader = DataLoader(test_dataset, batch_size=self.config.train.optimizer.batch_size)
+
+      # Create `SentimentClassifierSystem`
+      system = SentimentClassifierSystem(self.config)
+
+      # Create `Trainer` and call `fit`
+      trainer = Trainer(max_epochs=self.config.train.optimizer.max_epochs)
+      trainer.fit(system, train_loader)
+
+      # Call `predict` on `Trainer` and the test data loader
+      predictions = trainer.predict(system, test_loader)
+
+      # Convert probabilities back to numpy (make sure 1D)
+      probs_ = torch.cat([p.cpu() for p in predictions], dim=0).numpy()
+      
+      # Check the shape of probs_ and adjust accordingly
+      if probs_.ndim == 2:
+          if probs_.shape[1] == 2:
+              probs_ = probs_[:, 1]  # Take probability of positive class
+          elif probs_.shape[1] == 1:
+              probs_ = probs_.squeeze()  # Squeeze to make it 1D
+          else:
+              raise ValueError(f"Unexpected shape of predictions: {probs_.shape}")
+      elif probs_.ndim == 1:
+          pass  # probs_ is already 1D, no need to change
+      else:
+          raise ValueError(f"Unexpected shape of predictions: {probs_.shape}")
+      
       # ===============================================
       assert probs_ is not None, "`probs_` is not defined."
       probs[test_index] = probs_
@@ -206,7 +249,17 @@ class TrainIdentifyReview(FlowSpec):
     # Types
     # --
     # ranked_label_issues: List[int]
-    # TODO
+    
+    # Get the noisy labels from the dataframe
+    noisy_labels = np.asarray(self.all_df.label)
+    
+    # Use cleanlab's find_label_issues function
+    ranked_label_issues = find_label_issues(
+        labels=noisy_labels,
+        pred_probs=prob,
+        return_indices_ranked_by='self_confidence'
+    )
+    
     # =============================
     assert ranked_label_issues is not None, "`ranked_label_issues` not defined."
 
@@ -303,8 +356,17 @@ class TrainIdentifyReview(FlowSpec):
     # dm.train_dataset.data = training slice of self.all_df
     # dm.dev_dataset.data = dev slice of self.all_df
     # dm.test_dataset.data = test slice of self.all_df
-    # TODO
-    # # ====================================
+    
+    # Overwrite train dataset
+    dm.train_dataset.data = self.all_df.iloc[:train_size]
+    
+    # Overwrite dev dataset
+    dm.dev_dataset.data = self.all_df.iloc[train_size:train_size+dev_size]
+    
+    # Overwrite test dataset
+    dm.test_dataset.data = self.all_df.iloc[train_size+dev_size:]
+    
+    # ====================================
 
     # start from scratch
     system = SentimentClassifierSystem(self.config)
